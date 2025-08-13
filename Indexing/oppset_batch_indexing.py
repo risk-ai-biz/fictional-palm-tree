@@ -55,11 +55,11 @@ except Exception as e:
 
 def _mix64(x: np.int64) -> np.int64:
     """64-bit mix (splitmix64-ish) for hash table slot selection."""
-    z = np.int64(x) + np.int64(0x9E3779B97F4A7C15)
-    z = (z ^ (z >> np.int64(30))) * np.int64(0xBF58476D1CE4E5B9)
-    z = (z ^ (z >> np.int64(27))) * np.int64(0x94D049BB133111EB)
-    z = z ^ (z >> np.int64(31))
-    return np.int64(z)
+    z = np.uint64(x) + np.uint64(0x9E3779B97F4A7C15)
+    z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    z = z ^ (z >> np.uint64(31))
+    return z.view(np.int64)
 
 def _next_pow2_ge(x: int) -> int:
     v = 1
@@ -160,7 +160,9 @@ def build_batch_local_indices(
     )
 
     # Assign local_oppset_id and local row
-    rows = rows.with_columns(pl.cum_count().over(["day_i32","sym_id"]).cast(pl.Int32).alias("local_row"))
+    rows = rows.with_columns(
+        pl.row_index().over(["day_i32", "sym_id"]).cast(pl.Int32).alias("local_row")
+    )
     opp_lut = (rows.group_by(["day_i32","sym_id"]).agg(pl.len().alias("n_rows"))
                     .sort(["day_i32","sym_id"])
                     .with_columns(pl.int_range(0, pl.len()).cast(pl.Int32).alias("local_oppset_id")))
@@ -176,10 +178,10 @@ def build_batch_local_indices(
     # Per-day parent map
     parent_by_day: Dict[int, Dict[int,int]] = {}
     level_by_day:  Dict[int, Dict[int,int]] = {}
-    for g in orders.group_by("day_i32", maintain_order=True):
+    for _, g in orders.group_by("day_i32", maintain_order=True):
         d = int(g["day_i32"][0])
         parent_by_day[d] = dict(zip(g["order_id"].to_list(), g["parent_id"].to_list()))
-        level_by_day[d]  = dict(zip(g["order_id"].to_list(), g["level"].to_list()))
+        level_by_day[d] = dict(zip(g["order_id"].to_list(), g["level"].to_list()))
 
     # Build row offsets (per oppset)
     grp = rows.group_by(["day_i32","sym_id"]).len().sort(["day_i32","sym_id"])
